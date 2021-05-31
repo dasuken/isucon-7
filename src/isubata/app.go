@@ -542,10 +542,16 @@ func getHistory(c echo.Context) error {
 
 	mjson := make([]map[string]interface{}, 0)
 	for i := len(messages) - 1; i >= 0; i-- {
-		r, err := jsonifyMessage(messages[i])
-		if err != nil {
-			return err
+		m := messages[i]
+		r := make(map[string]interface{})
+		r["id"] = m.ID
+		r["user"] = User{
+			Name:        m.UserName,
+			DisplayName: m.UserDisplayName,
+			AvatarIcon:  m.UserAvatarIcon,
 		}
+		r["date"] = m.CreatedAt.Format("2006/01/02 15:04:05")
+		r["content"] = m.Content
 		mjson = append(mjson, r)
 	}
 
