@@ -682,7 +682,7 @@ func postProfile(c echo.Context) error {
 		// if err != nil {
 		// 	return err
 		// }
-		ioutil.WriteFile("/home/isucon/isubata/webapp/public/icons"+avatarName, avatarData, 0644)
+		ioutil.WriteFile("./public/icons"+avatarName, avatarData, 0644)
 		_, err = db.Exec("UPDATE user SET avatar_icon = ? WHERE id = ?", avatarName, self.ID)
 		if err != nil {
 			return err
@@ -750,7 +750,7 @@ func main() {
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "request:\"${method} ${uri}\" status:${status} latency:${latency} (${latency_human}) bytes:${bytes_out}\n",
 	}))
-	e.Use(middleware.Static("../public"))
+	e.Use(middleware.Static("./public"))
 
 	e.GET("/initialize", getInitialize)
 	e.GET("/", getIndex)
