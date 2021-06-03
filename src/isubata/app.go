@@ -454,6 +454,7 @@ func queryHaveRead(userID, chID int64) (int64, error) {
 }
 
 func fetchUnread(c echo.Context) error {
+	// 前チャネル、何件読み込んでいないか
 	userID := sessUserID(c)
 	if userID == 0 {
 		return c.NoContent(http.StatusForbidden)
@@ -461,6 +462,7 @@ func fetchUnread(c echo.Context) error {
 
 	time.Sleep(time.Second)
 
+	// channelのid一覧
 	channels, err := queryChannels()
 	if err != nil {
 		return err
@@ -469,6 +471,7 @@ func fetchUnread(c echo.Context) error {
 	resp := []map[string]interface{}{}
 
 	for _, chID := range channels {
+		// 自分のuser_idと全チャネルを調べる。有ればmessage idが変える
 		lastID, err := queryHaveRead(userID, chID)
 		if err != nil {
 			return err
@@ -476,10 +479,12 @@ func fetchUnread(c echo.Context) error {
 
 		var cnt int64
 		if lastID > 0 {
+			// hitした時は自分の発言移行のmessage
 			err = db.Get(&cnt,
 				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ? AND ? < id",
 				chID, lastID)
 		} else {
+			// なかった時は全権取得
 			err = db.Get(&cnt,
 				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
 				chID)
