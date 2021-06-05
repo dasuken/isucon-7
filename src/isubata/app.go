@@ -33,6 +33,7 @@ const (
 var (
 	db            *sqlx.DB
 	ErrBadReqeust = echo.NewHTTPError(http.StatusBadRequest)
+	iconsPath     string
 )
 
 type Renderer struct {
@@ -47,6 +48,10 @@ func init() {
 	seedBuf := make([]byte, 8)
 	crand.Read(seedBuf)
 	rand.Seed(int64(binary.LittleEndian.Uint64(seedBuf)))
+	iconsPath = os.Getenv("ICONS_PATH")
+	if iconsPath == "" {
+		iconsPath = "./public/icons"
+	}
 
 	db_host := os.Getenv("ISUBATA_DB_HOST")
 	if db_host == "" {
@@ -694,7 +699,7 @@ func postProfile(c echo.Context) error {
 		// if err != nil {
 		// 	return err
 		// }
-		ioutil.WriteFile("./public/icons/"+avatarName, avatarData, 0644)
+		ioutil.WriteFile(iconsPath + avatarName, avatarData, 0644)
 		_, err = db.Exec("UPDATE user SET avatar_icon = ? WHERE id = ?", avatarName, self.ID)
 		if err != nil {
 			return err
