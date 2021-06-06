@@ -50,7 +50,7 @@ func init() {
 	rand.Seed(int64(binary.LittleEndian.Uint64(seedBuf)))
 	iconsPath = os.Getenv("ICONS_PATH")
 	if iconsPath == "" {
-		iconsPath = "./public/icons"
+		iconsPath = "./public/icons/"
 	}
 
 	db_host := os.Getenv("ISUBATA_DB_HOST")
