@@ -239,12 +239,18 @@ func getInitialize(c echo.Context) error {
 	db.MustExec("DELETE FROM message WHERE id > 10000")
 	db.MustExec("DELETE FROM haveread")
 
+	keys, err := redisClient.Keys(context.Background(), "haveread/*").Result()
+	if err != nil {
+		panic(err)
+	}
+	redisClient.Del(context.Background(), keys...)
+
 	redisClient.Del(context.Background(), "message_count")
 	counts := []struct {
 		Count     int `db:"cnt"`
 		ChannelID int `db:"channel_id"`
 	}{}
-	err := db.Select(&counts, "SELECT COUNT(*) as cnt, channel_id FROM message group by channel_id")
+	err = db.Select(&counts, "SELECT COUNT(*) as cnt, channel_id FROM message group by channel_id")
 	if err != nil {
 		return err
 	}
