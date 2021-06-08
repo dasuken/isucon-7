@@ -168,54 +168,40 @@ func sessUserID(c echo.Context) int64 {
 	return userID
 }
 
-func sessGetString(c echo.Context, name string) string {
-	sess, _ := session.Get("session", c)
-	var v string
-	if x, ok := sess.Values[name]; ok {
-		v, _ = x.(string)
-	}
-	return v
-}
-
-func sessGetTime(c echo.Context, name string) time.Time {
-	sess, _ := session.Get("session", c)
-	var s string
-	if x, ok := sess.Values[name]; ok {
-		s, _ = x.(string)
-	}
-	t, _ := time.Parse("2006-01-02 15:04:05", s)
-	return t
-}
-
-
-func sessSetUser(c echo.Context, user *User) {
+func sessSetUserID(c echo.Context, id int64) {
 	sess, _ := session.Get("session", c)
 	sess.Options = &sessions.Options{
 		HttpOnly: true,
 		MaxAge:   360000,
 	}
-	sess.Values["user_id"] = user.ID
-	sess.Values["user_name"] = user.Name
-	sess.Values["user_display_name"] = user.DisplayName
-	sess.Values["user_avator_icon"] = user.AvatarIcon
-	sess.Values["user_created_at"] = user.CreatedAt.Format("2006-01-02 15:04:05")
+	sess.Values["user_id"] = id
 	sess.Save(c.Request(), c.Response())
 }
 
 func ensureLogin(c echo.Context) (*User, error) {
+	var user *User
+	var err error
+
 	userID := sessUserID(c)
 	if userID == 0 {
-		c.Redirect(http.StatusSeeOther, "/login")
-		return nil, nil
+		goto redirect
 	}
 
-	return &User {
-		ID: 		 userID,
-		Name: 		 sessGetString(c,"user_name"),
-		DisplayName: sessGetString(c, "user_display_name"),
-		AvatarIcon:  sessGetString(c, "user_avator_icon"),
-		CreatedAt:   sessGetTime(c, "user_created_at"),
-	}, nil
+	user, err = getUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		sess, _ := session.Get("session", c)
+		delete(sess.Values, "user_id")
+		sess.Save(c.Request(), c.Response())
+		goto redirect
+	}
+	return user, nil
+
+redirect:
+	c.Redirect(http.StatusSeeOther, "/login")
+	return nil, nil
 }
 
 const LettersAndDigits = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -230,32 +216,18 @@ func randomString(n int) string {
 	return string(b)
 }
 
-func register(name, password string) (*User, error) {
+func register(name, password string) (int64, error) {
 	salt := randomString(20)
 	digest := fmt.Sprintf("%x", sha1.Sum([]byte(salt+password)))
-	now := time.Now()
 
 	res, err := db.Exec(
 		"INSERT INTO user (name, salt, password, display_name, avatar_icon, created_at)"+
 			" VALUES (?, ?, ?, ?, ?, NOW())",
 		name, salt, digest, name, "default.png")
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return nil, err
-	}
-
-	return &User{
-		ID:          id,
-		Name:        name,
-		Salt:        salt,
-		Password:    digest,
-		DisplayName: name,
-		AvatarIcon:  "default.png",
-		CreatedAt:   now,
-	}, nil
+	return res.LastInsertId()
 }
 
 // request handlers
@@ -347,7 +319,7 @@ func postRegister(c echo.Context) error {
 	if name == "" || pw == "" {
 		return ErrBadReqeust
 	}
-	user, err := register(name, pw)
+	userID, err := register(name, pw)
 	if err != nil {
 		if merr, ok := err.(*mysql.MySQLError); ok {
 			if merr.Number == 1062 { // Duplicate entry xxxx for key zzzz
@@ -356,7 +328,7 @@ func postRegister(c echo.Context) error {
 		}
 		return err
 	}
-	sessSetUser(c, user)
+	sessSetUserID(c, userID)
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
@@ -387,7 +359,7 @@ func postLogin(c echo.Context) error {
 	if digest != user.Password {
 		return echo.ErrForbidden
 	}
-	sessSetUser(c, &user)
+	sessSetUserID(c, user.ID)
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
