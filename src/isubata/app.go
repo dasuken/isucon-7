@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	crand "crypto/rand"
 	"crypto/sha1"
 	"database/sql"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-redis/redis"
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
@@ -34,6 +36,7 @@ var (
 	db            *sqlx.DB
 	ErrBadReqeust = echo.NewHTTPError(http.StatusBadRequest)
 	iconsPath     string
+	redisClient   *redis.Client
 )
 
 type Renderer struct {
@@ -75,6 +78,17 @@ func init() {
 
 	log.Printf("Connecting to db: %q", dsn)
 	db, _ = sqlx.Connect("mysql", dsn)
+
+	redisAddr := os.Getenv("ISUBATA_REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     redisAddr,
+		Password: "",
+		DB:       0,
+	})
+
 	for {
 		err := db.Ping()
 		if err == nil {
@@ -126,6 +140,7 @@ func addMessage(channelID, userID int64, content string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	redisClient.HIncrBy(context.Background(),"message_count", fmt.Sprintf("%d", channelID), 1)
 	return res.LastInsertId()
 }
 
@@ -251,6 +266,21 @@ func getInitialize(c echo.Context) error {
 	db.MustExec("DELETE FROM channel WHERE id > 10")
 	db.MustExec("DELETE FROM message WHERE id > 10000")
 	db.MustExec("DELETE FROM haveread")
+
+	redisClient.Del(context.Background(), "message_count")
+	counts := []struct {
+		Count     int `db:"cnt"`
+		ChannelID int `db:"channel_id"`
+	}{}
+	err := db.Select(&counts, "SELECT COUNT(*) as cnt, channel_id FROM message group by channel_id")
+	if err != nil {
+		return err
+	}
+	for _, c := range counts {
+		fmt.Println("getInitialize: ", c)
+		redisClient.HSet(context.Background(), "message_count", fmt.Sprintf("%d", c.ChannelID), c.Count)
+	}
+
 	return c.String(204, "")
 }
 
@@ -518,9 +548,12 @@ func fetchUnread(c echo.Context) error {
 				chID, lastID)
 		} else {
 			// なかった時は全権取得
-			err = db.Get(&cnt,
-				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
-				chID)
+			//err = db.Get(&cnt,
+			//	"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
+			//	chID)
+			//
+			res := redisClient.HGet(context.Background(), "message_count", fmt.Sprintf("%d", chID))
+			cnt, err = res.Int64()
 		}
 		if err != nil {
 			return err
