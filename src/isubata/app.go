@@ -120,12 +120,18 @@ func getUser(userID int64) (*User, error) {
 }
 
 func addMessage(channelID, userID int64, content string, c echo.Context) (int64, error) {
+	tx, err := db.Begin()
 	res, err := db.Exec(
 		"INSERT INTO message (channel_id, user_id, content, created_at) VALUES (?, ?, ?, NOW())",
 		channelID, userID, content)
+
+	_ ,err = db.Exec("UPDATE channel SET message_count = message_count + 1 WHERE id = ?", channelID)
 	if err != nil {
+		tx.Rollback()
 		return 0, err
 	}
+
+	tx.Commit()
 
 	return res.LastInsertId()
 }
