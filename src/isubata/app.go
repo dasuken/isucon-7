@@ -485,6 +485,7 @@ func fetchUnread(c echo.Context) error {
 
 	resp := []map[string]interface{}{}
 
+	var chanIDs []int64
 	for _, chID := range channels {
 		// 自分のuser_idと全チャネルを調べる。有ればmessage idが変える
 		lastID, err := queryHaveRead(userID, chID)
@@ -492,26 +493,46 @@ func fetchUnread(c echo.Context) error {
 			return err
 		}
 
-		var cnt int64
-		if lastID > 0 {
-			// hitした時は自分の発言移行のmessage
-			err = db.Get(&cnt,
-				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ? AND ? < id",
-				chID, lastID)
-		} else {
-			// なかった時は全権取得
-
-			err = db.Get(&cnt,
-				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
-				chID)
+		if lastID == 0 {
+			chanIDs = append(chanIDs, chID)
+			continue
 		}
+
+		var cnt int64
+		// hitした時は自分の発言移行のmessage
+		err = db.Get(&cnt,
+			"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ? AND ? < id",
+			chID, lastID)
 		if err != nil {
 			return err
 		}
+
 		r := map[string]interface{}{
 			"channel_id": chID,
 			"unread":     cnt}
 		resp = append(resp, r)
+	}
+
+	if 0 < len(chanIDs) {
+		// in出来るか試す
+		query, args, err := sqlx.In("SELECT * FROM channel WHERE id in (?)", chanIDs)
+		if err != nil {
+			return nil
+		}
+
+		var chans []ChannelInfo
+		err = db.Select(&chans, query, args...)
+		if err != nil {
+			return err
+		}
+
+		for _, ch := range chans {
+			r := map[string]interface{}{
+				"channel_id": ch.ID,
+				"unread": ch.MessageCount,
+			}
+			resp = append(resp, r)
+		}
 	}
 
 	return c.JSON(http.StatusOK, resp)
