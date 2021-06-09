@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis"
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
@@ -35,7 +34,6 @@ var (
 	db            *sqlx.DB
 	ErrBadReqeust = echo.NewHTTPError(http.StatusBadRequest)
 	iconsPath     string
-	redisClient   *redis.Client
 )
 
 type Renderer struct {
@@ -77,17 +75,6 @@ func init() {
 
 	log.Printf("Connecting to db: %q", dsn)
 	db, _ = sqlx.Connect("mysql", dsn)
-
-	redisAddr := os.Getenv("ISUBATA_REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: "",
-		DB:       0,
-	})
-
 	for {
 		err := db.Ping()
 		if err == nil {
@@ -139,7 +126,7 @@ func addMessage(channelID, userID int64, content string, c echo.Context) (int64,
 	if err != nil {
 		return 0, err
 	}
-	redisClient.HIncrBy(c.Request().Context(),"message_count", fmt.Sprintf("%d", channelID), 1)
+
 	return res.LastInsertId()
 }
 
@@ -237,21 +224,6 @@ func getInitialize(c echo.Context) error {
 	db.MustExec("DELETE FROM channel WHERE id > 10")
 	db.MustExec("DELETE FROM message WHERE id > 10000")
 	db.MustExec("DELETE FROM haveread")
-
-	redisClient.Del("message_count")
-	redisClient.Del("message_count")
-	counts := []struct {
-		Count     int `db:"cnt"`
-		ChannelID int `db:"channel_id"`
-	}{}
-	err := db.Select(&counts, "SELECT COUNT(*) as cnt, channel_id FROM message group by channel_id")
-	if err != nil {
-		return err
-	}
-	for _, count := range counts {
-		fmt.Println("getInitialize: ", count)
-		redisClient.HSet(c.Request().Context(),"message_count", fmt.Sprintf("%d", count.ChannelID), count.Count)
-	}
 
 	return c.String(204, "")
 }
@@ -520,12 +492,10 @@ func fetchUnread(c echo.Context) error {
 				chID, lastID)
 		} else {
 			// なかった時は全権取得
-			//err = db.Get(&cnt,
-			//	"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
-			//	chID)
-			//
-			res := redisClient.HGet(c.Request().Context(), "message_count", fmt.Sprintf("%d", chID))
-			cnt, err = res.Int64()
+
+			err = db.Get(&cnt,
+				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
+				chID)
 		}
 		if err != nil {
 			return err

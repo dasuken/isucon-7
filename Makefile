@@ -1,9 +1,6 @@
 GOPATH := ${PWD}
 export GOPATH
 
-get:
-	go get github.com/go-redis/redis
-
 dev-local:
 	ISUBATA_DB_HOST=35.200.125.210 ISUBATA_DB_PASSWORD=isucon ISUBATA_DB_USER=isucon go run ./src/isubata/app.go
 
