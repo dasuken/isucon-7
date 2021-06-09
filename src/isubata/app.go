@@ -230,6 +230,7 @@ func getInitialize(c echo.Context) error {
 	db.MustExec("DELETE FROM channel WHERE id > 10")
 	db.MustExec("DELETE FROM message WHERE id > 10000")
 	db.MustExec("DELETE FROM haveread")
+	db.MustExec("UPDATE channel JOIN (SELECT channel_id, COUNT(*) msg_count FROM message GROUP BY channel_id) tmp ON tmp.channel_id = channel.id SET message_count = msg_count")
 
 	return c.String(204, "")
 }
@@ -251,6 +252,7 @@ type ChannelInfo struct {
 	Description string    `db:"description"`
 	UpdatedAt   time.Time `db:"updated_at"`
 	CreatedAt   time.Time `db:"created_at"`
+	MessageCount int64    `db:"message_count"`
 }
 
 func getChannel(c echo.Context) error {
