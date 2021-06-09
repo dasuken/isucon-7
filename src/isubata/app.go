@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	crand "crypto/rand"
 	"crypto/sha1"
 	"database/sql"
@@ -133,14 +132,14 @@ func getUser(userID int64) (*User, error) {
 	return &u, nil
 }
 
-func addMessage(channelID, userID int64, content string) (int64, error) {
+func addMessage(channelID, userID int64, content string, c echo.Context) (int64, error) {
 	res, err := db.Exec(
 		"INSERT INTO message (channel_id, user_id, content, created_at) VALUES (?, ?, ?, NOW())",
 		channelID, userID, content)
 	if err != nil {
 		return 0, err
 	}
-	redisClient.HIncrBy(context.Background(),"message_count", fmt.Sprintf("%d", channelID), 1)
+	redisClient.HIncrBy(c.Request().Context(),"message_count", fmt.Sprintf("%d", channelID), 1)
 	return res.LastInsertId()
 }
 
@@ -239,13 +238,13 @@ func getInitialize(c echo.Context) error {
 	db.MustExec("DELETE FROM message WHERE id > 10000")
 	db.MustExec("DELETE FROM haveread")
 
-	keys, err := redisClient.Keys(context.Background(), "haveread/*").Result()
+	keys, err := redisClient.Keys(c.Request().Context(), "haveread/*").Result()
 	if err != nil {
 		panic(err)
 	}
-	redisClient.Del(context.Background(), keys...)
+	redisClient.Del(c.Request().Context(), keys...)
 
-	redisClient.Del(context.Background(), "message_count")
+	redisClient.Del(c.Request().Context(), "message_count")
 	counts := []struct {
 		Count     int `db:"cnt"`
 		ChannelID int `db:"channel_id"`
@@ -254,9 +253,9 @@ func getInitialize(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, c := range counts {
-		fmt.Println("getInitialize: ", c)
-		redisClient.HSet(context.Background(), "message_count", fmt.Sprintf("%d", c.ChannelID), c.Count)
+	for _, count := range counts {
+		fmt.Println("getInitialize: ", count)
+		redisClient.HSet(c.Request().Context(),"message_count", fmt.Sprintf("%d", count.ChannelID), count.Count)
 	}
 
 	return c.String(204, "")
@@ -394,7 +393,7 @@ func postMessage(c echo.Context) error {
 		chanID = int64(x)
 	}
 
-	if _, err := addMessage(chanID, user.ID, message); err != nil {
+	if _, err := addMessage(chanID, user.ID, message, c); err != nil {
 		return err
 	}
 
@@ -530,7 +529,7 @@ func fetchUnread(c echo.Context) error {
 			//	"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
 			//	chID)
 			//
-			res := redisClient.HGet(context.Background(), "message_count", fmt.Sprintf("%d", chID))
+			res := redisClient.HGet(c.Request().Context(), "message_count", fmt.Sprintf("%d", chID))
 			cnt, err = res.Int64()
 		}
 		if err != nil {
