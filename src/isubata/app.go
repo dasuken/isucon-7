@@ -447,26 +447,26 @@ func queryChannels() ([]int64, error) {
 	return res, err
 }
 
-func queryHaveRead(userID, chID int64) (int64, error) {
-	type HaveRead struct {
-		UserID    int64     `db:"user_id"`
-		ChannelID int64     `db:"channel_id"`
-		MessageID int64     `db:"message_id"`
-		UpdatedAt time.Time `db:"updated_at"`
-		CreatedAt time.Time `db:"created_at"`
-	}
-	h := HaveRead{}
-
-	err := db.Get(&h, "SELECT * FROM haveread WHERE user_id = ? AND channel_id = ?",
-		userID, chID)
-
-	if err == sql.ErrNoRows {
-		return 0, nil
-	} else if err != nil {
-		return 0, err
-	}
-	return h.MessageID, nil
-}
+//func queryHaveRead(userID, chID int64) (int64, error) {
+//	type HaveRead struct {
+//		UserID    int64     `db:"user_id"`
+//		ChannelID int64     `db:"channel_id"`
+//		MessageID int64     `db:"message_id"`
+//		UpdatedAt time.Time `db:"updated_at"`
+//		CreatedAt time.Time `db:"created_at"`
+//	}
+//	h := HaveRead{}
+//
+//	err := db.Get(&h, "SELECT * FROM haveread WHERE user_id = ? AND channel_id = ?",
+//		userID, chID)
+//
+//	if err == sql.ErrNoRows {
+//		return 0, nil
+//	} else if err != nil {
+//		return 0, err
+//	}
+//	return h.MessageID, nil
+//}
 
 func fetchUnread(c echo.Context) error {
 	// 前チャネル、何件読み込んでいないか
@@ -485,21 +485,42 @@ func fetchUnread(c echo.Context) error {
 
 	resp := []map[string]interface{}{}
 
-	var chanIDs []int64
-	for _, chID := range channels {
-		// 自分のuser_idと全チャネルを調べる。有ればmessage idが変える
-		lastID, err := queryHaveRead(userID, chID)
-		if err != nil {
-			return err
-		}
+	type HaveRead struct {
+		ChannelID int64 `db:"channel_id"`
+		MessageID int64 `db:"message_id"`
+	}
 
+	haveReads := make(map[int64]int64)
+
+	query, args, err := sqlx.In(
+		"SELECT channel_id, message_id FROM haveread WHERE user_id = ? AND channel_id in (?)",
+				userID, channels)
+	if err != nil {
+		return err
+	}
+
+
+	hs := []HaveRead{}
+	// hitした時は自分の発言移行のmessage
+	err = db.Select(&hs, query, args...)
+	if err != nil {
+		return err
+	}
+
+	for _, h := range hs {
+		haveReads[h.ChannelID] = h.MessageID
+	}
+
+	var chanIDs []int64
+
+	for _, chID := range channels {
+		lastID := haveReads[chID]
 		if lastID == 0 {
 			chanIDs = append(chanIDs, chID)
 			continue
 		}
 
 		var cnt int64
-		// hitした時は自分の発言移行のmessage
 		err = db.Get(&cnt,
 			"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ? AND ? < id",
 			chID, lastID)
@@ -507,11 +528,13 @@ func fetchUnread(c echo.Context) error {
 			return err
 		}
 
-		r := map[string]interface{}{
+		r := map[string]interface{} {
 			"channel_id": chID,
-			"unread":     cnt}
+			"unread": cnt,
+		}
 		resp = append(resp, r)
 	}
+
 
 	if 0 < len(chanIDs) {
 		// in出来るか試す
